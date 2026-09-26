@@ -23,7 +23,6 @@ public sealed class TestJobController : ControllerBase
     public TestJobController(TestJobService service) => _service = service;
 
     [HttpPost("elements")]
-    [Consumes("application/json")]
     [Produces("application/json")]
     public async Task<IActionResult> Process(CancellationToken cancellationToken)
     {
@@ -41,7 +40,9 @@ public sealed class TestJobController : ControllerBase
         var validationResult = new TestJobRequestValidator().Validate(request);
         if (!validationResult.IsValid)
         {
-            return Ok(TestJobResponse.Error("VALIDATION_ERROR", string.Empty));
+            return Ok(TestJobResponse.Error(
+                "VALIDATION_ERROR",
+                string.Join("; ", validationResult.Errors.Select(e => e.ErrorMessage))));
         }
 
         var response = await _service.ProcessAsync(request, cancellationToken);

@@ -59,10 +59,10 @@ public sealed class TestJobResponse
         ErrorMessage = message,
     };
 
-    public void CopyErrorFrom(TestJobResponse error)
+    public void SetError(string code, string message)
     {
-        IsError = error.IsError;
-        ErrorCode = error.ErrorCode;
-        ErrorMessage = error.ErrorMessage;
+        IsError = 1;
+        ErrorCode = code;
+        ErrorMessage = message;
     }
 }

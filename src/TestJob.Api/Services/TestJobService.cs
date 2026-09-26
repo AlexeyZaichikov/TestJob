@@ -15,13 +15,11 @@ public sealed class TestJobService
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private readonly string _connectionString;
-    private readonly IBrowsingContext _browsingContext;
 
     public TestJobService(Microsoft.Extensions.Configuration.IConfiguration configuration)
     {
         _connectionString = configuration.GetConnectionString("Default")
             ?? throw new InvalidOperationException("The connection string 'Default' is not configured.");
-        _browsingContext = BrowsingContext.New(Configuration.Default);
     }
 
     public async Task<TestJobResponse> ProcessAsync(TestJobRequest request, CancellationToken cancellationToken = default)
@@ -34,7 +32,8 @@ public sealed class TestJobService
         }
         catch (Exception ex)
         {
-            return TestJobResponse.Error("URL_BASE64_DECODE_ERROR", ex.Message);
+            response.SetError("URL_BASE64_DECODE_ERROR", ex.Message);
+            return response;
         }
 
         string page;
@@ -44,7 +43,8 @@ public sealed class TestJobService
         }
         catch (Exception ex)
         {
-            return TestJobResponse.Error("PAGE_BASE64_DECODE_ERROR", ex.Message);
+            response.SetError("PAGE_BASE64_DECODE_ERROR", ex.Message);
+            return response;
         }
 
         var elements = await ExtractElementsAsync(page, request.Selector!, request.Attribute!, response, cancellationToken);
@@ -57,6 +57,7 @@ public sealed class TestJobService
         {
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync(cancellationToken);
+            await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
             const string insertSql =
                 "INSERT INTO elements (attribute_value, element_html) VALUES (@AttributeValue, @ElementHtml);";
@@ -66,13 +67,17 @@ public sealed class TestJobService
                 var command = new CommandDefinition(
                     insertSql,
                     new { element.AttributeValue, element.ElementHtml },
+                    transaction: transaction,
                     cancellationToken: cancellationToken);
                 await connection.ExecuteAsync(command);
             }
+
+            await transaction.CommitAsync(cancellationToken);
         }
         catch (Exception ex)
         {
-            return TestJobResponse.Error("DB_ERROR", ex.Message);
+            response.SetError("DB_ERROR", ex.Message);
+            return response;
         }
 
         try
@@ -86,7 +91,8 @@ public sealed class TestJobService
         }
         catch (Exception ex)
         {
-            return TestJobResponse.Error("EMAIL_REGEX_ERROR", ex.Message);
+            response.SetError("EMAIL_REGEX_ERROR", ex.Message);
+            return response;
         }
 
         try
@@ -95,7 +101,8 @@ public sealed class TestJobService
         }
         catch (Exception ex)
         {
-            return TestJobResponse.Error("DECRYPTION_ERROR", ex.Message);
+            response.SetError("DECRYPTION_ERROR", ex.Message);
+            return response;
         }
 
         return response;
@@ -129,7 +136,7 @@ public sealed class TestJobService
         }
         catch (Exception ex)
         {
-            response.CopyErrorFrom(TestJobResponse.Error("PARSE_ERROR", ex.Message));
+            response.SetError("PARSE_ERROR", ex.Message);
             return null;
         }
     }

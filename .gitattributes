@@ -1,0 +1,12 @@
+* text=auto eol=lf
+
+*.cs text diff=csharp
+*.csproj text
+*.sln text eol=crlf
+*.json text
+*.yml text
+*.txt text
+Dockerfile text
+.gitattributes text
+.gitignore text
+.dockerignore text
