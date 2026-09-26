@@ -1,12 +1,28 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using Dapper;
+using Microsoft.AspNetCore.Mvc;
 using Npgsql;
+using TestJob.Api.Models;
 using TestJob.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers().AddJsonOptions(options =>
+builder.Services.AddControllers()
+.AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.WriteIndented = true;
+    options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+    options.JsonSerializerOptions.AllowTrailingCommas = true;
+    options.JsonSerializerOptions.ReadCommentHandling = JsonCommentHandling.Skip;
+    options.JsonSerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip;
+});
+builder.Services.Configure<ApiBehaviorOptions>(options =>
+{
+    // Malformed JSON or an empty body never reaches the action method. Answer with the
+    // same response contract instead of the framework default (ProblemDetails + HTTP 400).
+    options.InvalidModelStateResponseFactory = _ =>
+        new OkObjectResult(TestJobResponse.Error("INVALID_JSON", "Request body is not a valid JSON object."));
 });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

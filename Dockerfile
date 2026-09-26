@@ -9,4 +9,4 @@ EXPOSE 8080
 
 ENV ASPNETCORE_URLS=http://+:8080
 
-ENTRYPOINT ["/bin/sh", "-c", "dotnet build -c Release && dotnet run -c Release --no-build --no-launch-profile"]
+ENTRYPOINT ["/bin/sh", "-c", "dotnet build -c Release && exec dotnet run -c Release --no-build --no-launch-profile"]

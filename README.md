@@ -1,45 +1,45 @@
 # TestJob
 
-REST API that processes a base64-encoded HTML page: extracts selected element attributes
-with [AngleSharp](https://anglesharp.github.io/), saves them to PostgreSQL with
-[Dapper](https://github.com/DapperLib/Dapper), counts emails found in the page, and decrypts a
-text encrypted with AES-256 (ECB mode).
+REST API, обрабатывающая HTML-страницу, закодированную в base64: извлекает значения атрибутов
+выбранных элементов через [AngleSharp](https://anglesharp.github.io/), сохраняет их в PostgreSQL
+с помощью [Dapper](https://github.com/DapperLib/Dapper), подсчитывает найденные на странице
+email-адреса и расшифровывает текст, зашифрованный алгоритмом AES-256 (режим ECB).
 
-Built with **.NET 10**, **ASP.NET Core**, **PostgreSQL 18**, **pgAdmin**, and **docker compose**.
+Реализовано на **.NET 10**, **ASP.NET Core**, **PostgreSQL 18**, **pgAdmin** и **docker compose**.
 
-## Stack
+## Стек
 
-| Component  | Version / Image                    |
-|------------|------------------------------------|
-| Runtime    | .NET 10 (SDK image `10.0`)         |
-| Web API    | ASP.NET Core + Swashbuckle         |
-| Parsing    | AngleSharp                         |
-| Data access| Dapper + Npgsql                    |
-| Validation | FluentValidation                   |
-| Database   | `postgres:18`                      |
-| Admin UI   | `dpage/pgadmin4`                   |
+| Компонент     | Версия / образ                    |
+|---------------|-----------------------------------|
+| Рантайм       | .NET 10 (SDK-образ `10.0`)        |
+| Web API       | ASP.NET Core + Swashbuckle        |
+| Парсинг       | AngleSharp                        |
+| Работа с БД   | Dapper + Npgsql                   |
+| Валидация     | FluentValidation                  |
+| База данных   | `postgres:18.6`                   |
+| Админка       | `dpage/pgadmin4:9.18`             |
 
-## Run with docker compose
+## Запуск через docker compose
 
 ```bash
 docker compose up -d --build
 ```
 
-Services:
+Сервисы:
 
-| Service | Address                                  | Credentials                 |
-|---------|------------------------------------------|-----------------------------|
-| API     | http://localhost:8090/api/swagger/index.html | —                       |
-| PGAdmin | http://localhost:8080                    | no password required        |
-| Postgres| `db:5432` inside the compose network     | `testjob` / `testjob`       |
+| Сервис  | Адрес                                       | Доступы                  |
+|---------|---------------------------------------------|--------------------------|
+| API     | http://localhost:8090/api/swagger/index.html | —                        |
+| PGAdmin | http://localhost:8080                       | пароль не требуется      |
+| Postgres| `db:5432` внутри сети compose                | `testjob` / `testjob`    |
 
-PostgreSQL is deliberately **not** published to the host: the API and pgAdmin both reach it as
-`db:5432` over the compose network, so the project does not occupy port 5432 on the host and cannot
-clash with a locally installed PostgreSQL.
+PostgreSQL намеренно **не** публикуется на хост: и API, и pgAdmin обращаются к нему как
+`db:5432` по сети compose, поэтому проект не занимает порт 5432 на хосте и не конфликтует с
+локально установленным PostgreSQL.
 
-Swagger JSON is served at `http://localhost:8090/api/swagger/v1/swagger.json`.
+Swagger в формате JSON доступен по `http://localhost:8090/api/swagger/v1/swagger.json`.
 
-On startup the API creates the `elements` table if it does not exist:
+При старте API создаёт таблицу `elements`, если она ещё не существует:
 
 ```sql
 CREATE TABLE IF NOT EXISTS elements (
@@ -49,84 +49,94 @@ CREATE TABLE IF NOT EXISTS elements (
 );
 ```
 
-To inspect the data from the host, run psql inside the container:
+Чтобы посмотреть данные с хоста, выполните psql внутри контейнера:
 
 ```bash
 docker compose exec db psql -U testjob -d testjob -c "SELECT * FROM elements ORDER BY id DESC LIMIT 20;"
 ```
 
-## Run locally (no Docker)
+## Локальный запуск (без Docker)
 
-Requires the .NET 10 SDK and a PostgreSQL instance. The connection string in
-`src/TestJob.Api/appsettings.json` points at `localhost:5433` (user `postgres`, password `testjob`)
-and is meant for a throwaway local instance:
+Требуются .NET 10 SDK и экземпляр PostgreSQL. Строка подключения в
+`src/TestJob.Api/appsettings.json` указывает на `localhost:5433` (пользователь `postgres`, пароль
+`testjob`) и рассчитана на одноразовый локальный экземпляр:
 
 ```bash
-# create the database once
+# создать базу данных один раз
 psql -h localhost -p 5433 -U postgres -c "CREATE DATABASE testjob;"
 
-# run the API
+# запустить API
 dotnet run --project src/TestJob.Api
 ```
 
-Override the connection string with an environment variable if your setup differs:
+Если ваша конфигурация отличается, переопределите строку подключения переменной окружения:
 
 ```powershell
 $env:ConnectionStrings__Default = "Host=localhost;Port=5432;Database=testjob;Username=testjob;Password=testjob"
 ```
 
-Note that `appsettings.json` is only the fallback: under docker compose the connection string is
-always supplied by the `ConnectionStrings__Default` environment variable in `compose.yml`, so the
-local value never affects the containerised run.
+Обратите внимание, что `appsettings.json` — это лишь запасной вариант: под docker compose строка
+подключения всегда берётся из переменной окружения `ConnectionStrings__Default` в `compose.yml`,
+поэтому локальное значение никак не влияет на запуск в контейнерах.
 
-## Endpoint
+## Эндпоинт
 
 ### `POST /api/elements`
 
-Request body (`application/json`):
+Тело запроса (`application/json` — заголовок `Content-Type` обязателен, иначе запрос будет
+отклонён с `415 Unsupported Media Type`):
 
-| Field                     | Type   | Description                                        |
-|---------------------------|--------|----------------------------------------------------|
-| `key_bytes_b64`           | string | AES-256 key, base64-encoded bytes (32 bytes)       |
-| `encrypted_text_bytes_b64`| string | AES-256-ECB ciphertext, base64-encoded bytes       |
-| `page_b64`                | string | HTML page, base64-encoded UTF-8                    |
-| `url_b64`                 | string | Page URL, base64-encoded UTF-8                     |
-| `selector`                | string | CSS selector to find elements in the page          |
-| `attribute`               | string | Attribute whose value is extracted from each match |
+| Поле                      | Тип    | Описание                                                |
+|---------------------------|--------|---------------------------------------------------------|
+| `key_bytes_b64`           | string | ключ AES-256, байты в base64 (32 байта)                 |
+| `encrypted_text_bytes_b64`| string | шифротекст AES-256-ECB, байты в base64                  |
+| `page_b64`                | string | HTML-страница, UTF-8 в base64                           |
+| `url_b64`                 | string | URL страницы, UTF-8 в base64                            |
+| `selector`                | string | CSS-селектор для поиска элементов на странице           |
+| `attribute`               | string | атрибут, значение которого извлекается из каждого совпадения |
 
-Response body field order:
+```bash
+curl -X POST http://localhost:8090/api/elements \
+  -H "Content-Type: application/json" \
+  --data-binary @json_payload_1.txt
+```
 
-| Field                   | Type         | Description                                    |
-|-------------------------|--------------|------------------------------------------------|
-| `is_error`              | int          | `1` on error, `0` otherwise                    |
-| `error_code`            | string       | machine-readable error code                    |
-| `error_message`         | string       | human-readable error detail                    |
-| `elements_count`        | int          | number of matched elements                     |
-| `emails_count`          | int          | number of email matches in the page            |
-| `url`                   | string       | decoded page URL                               |
-| `decrypted_plain_text`  | string       | decrypted text from the ciphertext             |
-| `elements_attr_list`    | string[]     | extracted attribute values                     |
-| `emails_list`           | string[]     | found emails                                   |
+Самый простой способ проверить — Swagger UI на <http://localhost:8090/api/swagger>: он
+показывает схему payload и кнопку *Try it out*.
 
-### Error codes
+Порядок полей в теле ответа:
 
-| Code                      | When                                                |
-|---------------------------|-----------------------------------------------------|
-| `INVALID_JSON`            | body is not valid JSON                              |
-| `VALIDATION_ERROR`        | required fields are missing/empty (`error_message` lists them) |
-| `URL_BASE64_DECODE_ERROR` | `url_b64` cannot be decoded                         |
-| `PAGE_BASE64_DECODE_ERROR`| `page_b64` cannot be decoded                        |
-| `PARSE_ERROR`             | page parsing / selector evaluation failed           |
-| `DB_ERROR`                | database write failed                               |
-| `EMAIL_REGEX_ERROR`       | email extraction failed                             |
-| `DECRYPTION_ERROR`        | AES decryption failed                               |
+| Поле                  | Тип       | Описание                                  |
+|-----------------------|-----------|-------------------------------------------|
+| `is_error`            | int       | `1` при ошибке, иначе `0`                 |
+| `error_code`          | string    | машиночитаемый код ошибки                 |
+| `error_message`       | string    | описание ошибки для человека              |
+| `elements_count`      | int       | количество найденных элементов            |
+| `emails_count`        | int       | количество найденных email на странице    |
+| `url`                 | string    | URL страницы после декодирования          |
+| `decrypted_plain_text`| string    | текст, расшифрованный из шифротекста      |
+| `elements_attr_list`  | string[]  | извлечённые значения атрибутов            |
+| `emails_list`         | string[]  | найденные email-адреса                    |
 
-The endpoint always replies `200 OK`, including for errors — the outcome is reported in
-`is_error`. A selector that simply matches nothing, or an attribute that is absent on the
-matched elements, is **not** an error: `is_error` stays `0` and the affected lists come back
-empty (or filled with empty strings for a missing attribute).
+### Коды ошибок
 
-Example response:
+| Код                       | Когда                                                     |
+|---------------------------|-----------------------------------------------------------|
+| `INVALID_JSON`            | тело запроса не является корректным JSON                  |
+| `VALIDATION_ERROR`        | обязательные поля отсутствуют или пусты (список — в `error_message`) |
+| `URL_BASE64_DECODE_ERROR` | `url_b64` не декодируется                                 |
+| `PAGE_BASE64_DECODE_ERROR`| `page_b64` не декодируется                                |
+| `PARSE_ERROR`             | не удалось разобрать страницу или вычислить селектор      |
+| `DB_ERROR`                | не удалось записать в базу данных                         |
+| `EMAIL_REGEX_ERROR`       | не удалось извлечь email-адреса                           |
+| `DECRYPTION_ERROR`        | не удалось расшифровать AES                               |
+
+Эндпоинт всегда отвечает `200 OK`, в том числе при ошибках, — результат передаётся в `is_error`.
+Селектор, который просто ничего не находит, или атрибут, отсутствующий у найденных элементов,
+**не считается ошибкой**: `is_error` остаётся `0`, а соответствующие списки возвращаются пустыми
+(либо заполненными пустыми строками для отсутствующего атрибута).
+
+Пример ответа:
 
 ```json
 {
@@ -142,113 +152,115 @@ Example response:
 }
 ```
 
-## Implementation notes
+## Примечания по реализации
 
-- **AES-256-ECB** with `PaddingMode.None` and the provided 256-bit key — the algorithm is
-  used exactly as specified by the task (ECB is not recommended for general use, but is
-  required here).
-- **Email regex**: `[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}` with
+- **AES-256-ECB** с `PaddingMode.None` и переданным 256-битным ключом — алгоритм используется
+  ровно такой, как предписано заданием (ECB не рекомендуется для общего применения, но здесь он
+  требуется по условию).
+- **Регулярное выражение для email**:
+  `[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}` с флагами
   `Compiled | IgnoreCase | CultureInvariant`.
-- **Validation** with FluentValidation before any processing. The failure messages are
-  returned in `error_message` so the caller can see which field was rejected.
-- Each selected element is stored with its extracted attribute value and full outer HTML.
-  All inserts for one request run inside a single transaction, so a mid-way failure cannot
-  leave a half-written batch behind.
-- Errors never change the HTTP status code: the endpoint always answers `200 OK` and reports
-  the outcome in `is_error` / `error_code` / `error_message`, as the task specifies. Results
-  that were already computed before a failure are still returned, so a single response is
-  enough to diagnose what happened.
-- The `elements` table is append-only: every request adds rows and nothing is deleted, so
-  the row count grows with the number of requests.
+- **Валидация** через FluentValidation до любой обработки. Сообщения об ошибках возвращаются в
+  `error_message`, чтобы вызывающая сторона видела, какое именно поле отклонено.
+- Каждый найденный элемент сохраняется вместе со своим значением атрибута и полным внешним HTML.
+  Все вставки одного запроса выполняются в рамках одной транзакции, поэтому сбой в середине не
+  оставит после себя наполовину записанную пачку.
+- Ошибки никогда не меняют HTTP-код ответа: эндпоинт всегда отвечает `200 OK` и сообщает о
+  результате в `is_error` / `error_code` / `error_message`, как требует задание. Уже вычисленные до
+  сбоя результаты тоже возвращаются, поэтому одного ответа достаточно, чтобы понять, что
+  произошло.
+- Таблица `elements` доступна только на пополнение: каждый запрос добавляет строки, ничего не
+  удаляется, поэтому количество строк растёт вместе с числом запросов.
 
-## About `async`
+## Про `async`
 
-The request path is asynchronous end to end, and the choice of *where* is deliberate.
+Путь обработки запроса асинхронный от начала до конца, и выбор *где именно* сделан осознанно.
 
-**Why async helps a REST API.** A thread inside a .NET thread pool is a scarce, shared
-resource. A synchronous call that waits for I/O — a database round trip, reading the request
-body — parks that thread for the whole duration of the wait while doing no work. Under
-concurrency, requests queue up behind each other and throughput collapses even though the CPU
-is idle. `await` releases the thread instead: the method returns to the pool immediately and
-resumes on a continuation when the result arrives, so a few hundred slow requests can be in
-flight on a small thread pool. It also removes the risk of thread starvation and of
-sync-over-async deadlocks, and it is what lets the server scale by adding replicas rather than
-threads. On top of that, everything in this pipeline is I/O-shaped — an HTTP-ish page load, a
-base64 body, a database write — so the win is direct rather than theoretical.
+**Зачем async нужен REST API.** Поток в пуле потоков .NET — дешёвый общий ресурс. Синхронный
+вызов, ожидающий ввод-вывод (обращение к базе, чтение тела запроса), занимает этот поток на всё
+время ожидания, не делая при этом ничего полезного. Под нагрузкой запросы выстраиваются в
+очередь друг за другом, и пропускная способность падает, хотя процессор простаивает. `await`
+при этом освобождает поток: метод немедленно возвращает управление в пул и возобновляется на
+continuation, когда результат готов, поэтому несколько сотен медленных запросов могут
+одновременно находиться в работе на небольшом пуле потоков. Это также снимает риск
+thread starvation и sync-over-async deadlock и позволяет масштабировать сервер добавлением
+реплик вместо потоков. К тому же всё в этом конвейере по природе является вводом-выводом —
+загрузка страницы, тело в base64, запись в БД, — поэтому выигрыш прямой, а не теоретический.
 
-**Where it is used here, and why.**
+**Где он используется здесь и почему.**
 
-| Operation | How | Reason |
-|---|---|---|
-| Reading the request body | `JsonSerializer.DeserializeAsync` | Genuine I/O: the body arrives over the socket in chunks. |
-| HTML parsing | AngleSharp `OpenAsync` | Asynchronous loading API; awaited so nothing blocks while the document is being resolved. |
-| Database connect + insert | `await connection.OpenAsync`, Dapper `ExecuteAsync` with a `CancellationToken` | The classic case: ~ms of network wait per request, and the write must be cancellable when the client disconnects. |
-| `CancellationToken` plumbed through | `HttpContext.RequestAborted` | Abandons work for requests the client already gave up on instead of finishing them. |
+| Операция                       | Как                                                                   | Почему                                                                                                                        |
+|--------------------------------|-----------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| Чтение тела запроса            | `[FromBody]` model binding — JSON-форматтер читает поток сокета асинхронно | Настоящий ввод-вывод: тело приходит по сокету частями. Привязка через типизированный параметр (а не ручное чтение `Request.Body`) заодно добавляет схему payload в Swagger. |
+| Парсинг HTML                   | AngleSharp `OpenAsync`                                                | Асинхронный API загрузки; `await`, чтобы ничего не блокировалось, пока документ резолвится.                                   |
+| Подключение к БД + вставка     | `await connection.OpenAsync`, Dapper `ExecuteAsync` с `CancellationToken` | Классический случай: ~мс сетевого ожидания на запрос, и запись должна быть отменяемой при отключении клиента.                    |
+| Проброс `CancellationToken`    | `HttpContext.RequestAborted`                                          | Прекращает работу для запросов, от которых клиент уже отказался, вместо того чтобы доводить их до конца.                      |
 
-**Where it is deliberately *not* used, and why that is the right call.** Wrapping CPU-bound
-work in `Task.Run` does not make it parallel or faster — it just moves the same computation to
-another thread pool thread and adds scheduling overhead. Worse, it burns one of the same
-threads `await` exists to protect, so it actively reduces the capacity available to genuinely
-asynchronous work. So the following are intentionally synchronous:
+**Где он намеренно *не* используется и почему это правильное решение.** Оборачивание
+CPU-bound работы в `Task.Run` не делает её параллельной и не ускоряет — оно лишь переносит то
+же вычисление на другой поток пула и добавляет накладные расходы на планирование. Хуже того, оно
+съедает один из тех самых потоков, которые `await` существует чтобы защищать, поэтому активно
+снижает пропускную способность для действительно асинхронной работы. Следующие операции
+намеренно остаются синхронными:
 
-- `EmailRegex.Matches(page)` — pure CPU, microseconds-to-milliseconds, and the pattern is
-  pre-compiled (`RegexOptions.Compiled`) so the match itself is cheap. An `await` here would
-  buy nothing.
-- `DecryptAes` — a 64-byte ECB decrypt. There is no asynchronous overload of
-  `Aes.CreateDecryptor`/`TransformFinalBlock` because there is nothing to wait for.
-- `Encoding.UTF8.GetString` and `Convert.FromBase64String` — synchronous by design; base64
-  decoding over ~150 KB of memory finishes in about a tenth of a millisecond, far below the
-  threshold where offloading would pay for the context switch.
-- AngleSharp's document is built from an in-memory string, so no network fetch is involved;
-  the await is kept only because it is the library's documented entry point.
+- `EmailRegex.Matches(page)` — чистая нагрузка на CPU, от микросекунд до миллисекунд, при этом
+  шаблон заранее скомпилирован (`RegexOptions.Compiled`), так что сам поиск дешёвый. `await` здесь
+  ничего бы не дал.
+- `DecryptAes` — расшифровка 64 байт в режиме ECB. Асинхронных перегрузок у
+  `Aes.CreateDecryptor`/`TransformFinalBlock` нет, потому что ждать нечего.
+- `Encoding.UTF8.GetString` и `Convert.FromBase64String` — синхронны по своей природе: декодирование
+  base64 для ~150 КБ в памяти занимает около одной десятой миллисекунды, что намного ниже
+  порога, на котором вынос в отдельный поток окупил бы переключение контекста.
+- Документ AngleSharp строится из строки в памяти, поэтому сетевого запроса нет; `await` оставлен
+  только потому, что это документированная точка входа библиотеки.
 
-The rule of thumb: make something `async` when it *waits*; leave it synchronous when it
-*computes*. If a CPU-bound stage ever grows large enough to matter (a multi-megabyte page with
-a pathological regex, say), the right answer is not `Task.Run` but a bounded background
-service or `Parallel.For` over independent chunks — and even then, only for the stage that
-actually needs it.
+Правило большого пальца: делайте что-то `async`, когда оно *ждёт*; оставляйте синхронным, когда
+оно *вычисляет*. Если CPU-bound этап когда-нибудь вырастет достаточно, чтобы это имело значение
+(например, многомегабайтная страница с патологическим регулярным выражением), правильным ответом
+будет не `Task.Run`, а ограниченная фоновая служба или `Parallel.For` по независимым частям — и
+даже тогда только для того этапа, которому это действительно нужно.
 
-## Project structure
+## Структура проекта
 
 ```
 ├── compose.yml                  # API + Postgres 18 + pgAdmin
-├── Dockerfile                   # build-and-run image for the API
+├── Dockerfile                   # образ API со сборкой и запуском
 ├── pgadmin/
-│   └── servers.json             # pgAdmin server registration
-├── json_result_1.txt            # API response for json_payload_1.txt
-├── json_result_2.txt            # API response for json_payload_2.txt
+│   └── servers.json             # регистрация сервера в pgAdmin
+├── json_result_1.txt            # ответ API на json_payload_1.txt
+├── json_result_2.txt            # ответ API на json_payload_2.txt
 ├── TestJob.Api.sln
 └── src/TestJob.Api/
-    ├── Program.cs               # host, swagger, DB bootstrap
+    ├── Program.cs               # хост, swagger, инициализация БД
     ├── Controllers/TestJobController.cs
-    ├── Models/Models.cs         # request/response DTOs
+    ├── Models/Models.cs         # DTO запроса и ответа
     ├── Services/TestJobService.cs
     ├── Validation/TestJobRequestValidator.cs
     └── appsettings.json
 ```
 
-`json_result_1.txt` and `json_result_2.txt` were produced by posting `json_payload_1.txt` and
-`json_payload_2.txt` from the original assignment to a freshly started `docker compose` stack,
-against an empty `elements` table.
+`json_result_1.txt` и `json_result_2.txt` получены отправкой `json_payload_1.txt` и
+`json_payload_2.txt` из исходного задания на только что запущенный стек `docker compose` при
+пустой таблице `elements`.
 
-## Notes on the container setup
+## Примечания по настройке контейнеров
 
-- The API image is `mcr.microsoft.com/dotnet/sdk:10.0` and the entrypoint runs
-  `dotnet build && dotnet run` on every container start. Because `compose.yml` bind-mounts
-  `./src` into `/app/src`, editing the source and restarting the container is enough to
-  rebuild — no image rebuild required.
-- `PGADMIN_CONFIG_SERVER_MODE: "False"` puts pgAdmin into desktop mode, which is what makes
-  it open at <http://localhost:8080> with no login form. The pre-registered connection comes
-  from `pgadmin/servers.json`, so no credentials have to be typed either.
-- `PGADMIN_DEFAULT_EMAIL` must use a real, non-reserved TLD. Values ending in `.local`,
-  `.test`, `.example` or `.invalid` are rejected by pgAdmin's validator and the container
-  exits with code 1.
-- PostgreSQL data lives in the named volume `pgdata`, mounted at `/var/lib/postgresql`, which
-  is the correct mount point for the `postgres:18` image (its `PGDATA` is
-  `/var/lib/postgresql/18/docker`). The data survives `docker compose down` / `up`.
-- The API creates its own table on startup and retries for about 40 s while the database
-  finishes initialising, which is backed up by `depends_on: condition: service_healthy`.
+- Образ API — `mcr.microsoft.com/dotnet/sdk:10.0`, и точка входа запускает
+  `dotnet build && dotnet run` при каждом старте контейнера. Поскольку `compose.yml` монтирует
+  `./src` в `/app/src`, чтобы пересобрать достаточно отредактировать исходники и перезапустить
+  контейнер — пересборка образа не требуется.
+- `PGADMIN_CONFIG_SERVER_MODE: "False"` переводит pgAdmin в desktop-режим, благодаря чему он
+  открывается на <http://localhost:8080> без формы входа. Предварительно настроенное подключение
+  берётся из `pgadmin/servers.json`, так что вводить учётные данные тоже не нужно.
+- `PGADMIN_DEFAULT_EMAIL` должен использовать реальный, не зарезервированный TLD. Значения,
+  оканчивающиеся на `.local`, `.test`, `.example` или `.invalid`, отклоняются валидатором pgAdmin,
+  и контейнер завершается с кодом 1.
+- Данные PostgreSQL хранятся в именованном томе `pgdata`, смонтированном в
+  `/var/lib/postgresql` — это правильная точка монтирования для образа `postgres:18.6` (его
+  `PGDATA` — `/var/lib/postgresql/18/docker`). Данные переживают `docker compose down` / `up`.
+- API создаёт собственную таблицу при старте и повторяет попытки около 40 с, пока база данных
+  завершает инициализацию; этому дополнительно помогает `depends_on: condition: service_healthy`.
 
-## License
+## Лицензия
 
-Unlicensed — test assignment artifact.
+Без лицензии — артефакт тестового задания.
