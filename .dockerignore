@@ -1,0 +1,12 @@
+.git/**
+**/bin/**
+**/obj/**
+.vs/**
+.idea/**
+.vscode/**
+*.md
+Dockerfile
+compose*.yml
+pgadmin/**
+json_*.txt
+web-page.txt
