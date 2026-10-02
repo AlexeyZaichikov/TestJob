@@ -39,6 +39,7 @@ app.UseSwaggerUI(options =>
     options.RoutePrefix = "api/swagger";
 });
 
+app.MapGet("/", () => Results.Redirect("/api/swagger/index.html"));
 app.MapControllers();
 app.Run();
 
